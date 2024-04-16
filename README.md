@@ -1,14 +1,12 @@
 <h1 align="center">
-  Evy´s Learning
+  Evy´s Learning: Course Platform
 </h1>
-<h2 align="center">
-	Course Platform
-</h2>
 </br>
 
 ## 💻 Project Description
 
 This project consists of a platform called Evy's Learning with the aim of offering distance learning courses with activities for students who want to learn english and programming in Brazil. An Entity-Relationship diagram was drawn to illustrate this solution:
+</br>
 
 ![homescreen](diagram.png)
 
@@ -53,8 +51,6 @@ $ go mod tidy
 ## 🛠 Technologies
 
 The following tools were used during the development of the project:
-
-#### **Website**  
 ([Go](https://go.dev/) + HTML5 + [Docker](https://www.docker.com/) + [PostgreSQL](https://www.postgresql.org/))
 <br>
 
