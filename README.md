@@ -33,13 +33,11 @@ In addition, it is good to have an editor to work with the code, such as [VSCode
 ```bash
 
 # Clone this repository
-$ git clone git@github.com:EvyOliveira/evysLearning.git
 
 # Access the project folder via the following terminal
 $ cd evys-learning
 
 # Initialize module in Go
-$ git mod init git@github.com:EvyOliveira/evysLearning.git
 
 # To synchronize code dependencies
 $ go mod tidy
