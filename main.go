@@ -1,18 +1,30 @@
 package main
 
 import (
-	"encoding/json"
+	"database/sql"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
-	"strconv"
+	"os"
 
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+	"github.com/spf13/viper"
+)
+
+var (
+	exercises exercise
+	classes   class
+	courses   course
+	id        uint32
+	err       error
+	config    *configuration
+	data      []dataList
 )
 
 type exercise struct {
-	ID            string `json:"id"`
+	ID            uint32 `json:"id"`
 	Question      string `json:"question"`
 	Answers       string `json:"answers"`
 	CorrectAnswer string `json:"correct_answer"`
@@ -21,7 +33,7 @@ type exercise struct {
 }
 
 type class struct {
-	ID     string  `json:"id"`
+	ID     uint32  `json:"id"`
 	Title  string  `json:"title"`
 	Resume string  `json:"resume"`
 	Text   string  `json:"text"`
@@ -29,7 +41,7 @@ type class struct {
 }
 
 type course struct {
-	ID          string `json:"id"`
+	ID          uint32 `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -40,41 +52,38 @@ type dataList struct {
 	Courses   []course   `json:"courses"`
 }
 
-type getID interface {
-	getID() string
+type configuration struct {
+	API apiConfiguration
+	DB  dbConfiguration
 }
 
-func (e *exercise) getID() string {
-	return e.ID
+type apiConfiguration struct {
+	Port string
 }
 
-func (c *class) getID() string {
-	return c.ID
+type dbConfiguration struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Database string
 }
-
-func (c *course) getID() string {
-	return c.ID
-}
-
-var exercises []exercise
-var classes []class
-var courses []course
 
 func main() {
 	route := mux.NewRouter()
 
 	route.HandleFunc("/", getAll).Methods("GET")
-	route.HandleFunc("/exercises/{id}", get).Methods("GET")
+	route.HandleFunc("/exercises/{id}", getById).Methods("GET")
 	route.HandleFunc("/exercises/{id}", create).Methods("POST")
 	route.HandleFunc("/exercises/{id}", update).Methods("PUT")
 	route.HandleFunc("/exercises/{id}", delete).Methods("DELETE")
 
-	route.HandleFunc("/classes/{id}", get).Methods("GET")
+	route.HandleFunc("/classes/{id}", getById).Methods("GET")
 	route.HandleFunc("/classes/{id}", create).Methods("POST")
 	route.HandleFunc("/classes/{id}", update).Methods("PUT")
 	route.HandleFunc("/classes/{id}", delete).Methods("DELETE")
 
-	route.HandleFunc("/courses/{id}", get).Methods("GET")
+	route.HandleFunc("/courses/{id}", getById).Methods("GET")
 	route.HandleFunc("/classes/{id}", create).Methods("POST")
 	route.HandleFunc("/classes/{id}", update).Methods("PUT")
 	route.HandleFunc("/classes/{id}", delete).Methods("DELETE")
@@ -83,217 +92,249 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8000", nil))
 }
 
-func getAll(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+func init() {
+	viper.SetDefault("api.port", "8000")
+	viper.SetDefault("database.host", "localhost")
+	viper.SetDefault("database.port", "5432")
+}
 
-	var allData dataList
-	switch r.URL.Path {
-	case "/":
-		allData.Exercises = exercises
-		allData.Classes = classes
-		allData.Courses = courses
-	default:
-		http.Error(w, "path not found", http.StatusNotFound)
-		return
+func load() error {
+	viper.SetConfigFile("config")
+	viper.SetConfigFile("env")
+	viper.AddConfigPath(".")
+	err := viper.ReadInConfig()
+
+	if err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return err
+		}
 	}
 
-	w.WriteHeader(http.StatusOK)
-	err := json.NewEncoder(w).Encode(allData)
+	configuration := new(configuration)
+	configuration.API = apiConfiguration{
+		Port: viper.GetString("api.port"),
+	}
+
+	configuration.DB = dbConfiguration{
+		Host:     viper.GetString("database.host"),
+		Port:     viper.GetString("database.port"),
+		User:     viper.GetString("database.user"),
+		Password: viper.GetString("database.password"),
+		Database: viper.GetString("database.database"),
+	}
+
+	return nil
+}
+
+func getDB() dbConfiguration {
+	return config.DB
+}
+
+func getServerPort() string {
+	return config.API.Port
+}
+
+func openConnection() (*sql.DB, error) {
+	conf := getDB()
+
+	stringConnection := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disbale",
+		conf.Host, conf.Port, conf.User, conf.Password, conf.Database)
+
+	databaseConnection, err := sql.Open("postgres", stringConnection)
 	if err != nil {
 		panic(err)
 	}
+
+	err = databaseConnection.Ping()
+	return databaseConnection, err
 }
 
-func get(w http.ResponseWriter, r *http.Request) {
+func createConnection() *sql.DB {
+	err := godotenv.Load(".env")
+
+	if err != nil {
+		log.Fatalf("error loading .env file")
+	}
+
+	db, err := sql.Open("postgres", os.Getenv("POSTGRES_URL"))
+
+	if err != nil {
+		panic(err)
+	}
+
+	err = db.Ping()
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("successful connection")
+
+	return db
+}
+
+func getAll(w http.ResponseWriter, r *http.Request) {
+	databaseConnection, err := openConnection()
+	if err != nil {
+		return
+	}
+	defer databaseConnection.Close()
+
+	rows, err := databaseConnection.Query(`SELECT * FROM datalist`)
+	if err != nil {
+		return
+	}
+
+	for rows.Next() {
+		var allData dataList
+		err = rows.Scan(&allData.Exercises, &allData.Classes, &allData.Courses)
+		if err != nil {
+			continue
+		}
+		data = append(data, allData)
+	}
+}
+
+func getById(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	var items []getID
+	databaseConnection, err := openConnection()
+	if err != nil {
+		return
+	}
+	defer databaseConnection.Close()
+
 	switch r.URL.Path {
 	case "/exercises":
-		for _, item := range exercises {
-			items = append(items, &item)
-		}
+		row := databaseConnection.QueryRow(`SELECT * FROM exercises WHERE id=$1`, id)
+		err = row.Scan(&exercises.ID, &exercises.Question, &exercises.Answers, &exercises.CorrectAnswer, &exercises.Subject, &exercises.Subject, &exercises.Classes)
 	case "/classes":
-		for _, item := range classes {
-			items = append(items, &item)
-		}
+		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
+		err = row.Scan(&classes.ID, &classes.Title, &classes.Resume, &classes.Text, &classes.Course)
 	case "/courses":
-		for _, item := range courses {
-			items = append(items, &item)
-		}
+		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
+		err = row.Scan(&courses.ID, &courses.Name, &courses.Description)
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
 		return
 	}
 
-	params := mux.Vars(r)
-
-	for _, item := range exercises {
-		if item.ID == params["id"] {
-			json.NewEncoder(w).Encode(item)
-			return
-		}
-	}
+	return
 }
 
 func create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	var item interface{}
+	databaseConnection, err := openConnection()
+	if err != nil {
+		return
+	}
+	defer databaseConnection.Close()
+
 	switch r.URL.Path {
 	case "/exercises":
-		item = &exercise{}
+		row := `INSERT INTO exercises (questions, answers, correctAnswer, subject, classes) VALUES ($1, $2, $3, $4, $5) RETURNING id`
+		err = databaseConnection.QueryRow(row, exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject, exercises.Classes).Scan(&id)
 	case "/classes":
-		item = &class{}
+		row := `INSERT INTO classes (title, resume, text, course) VALUES ($1, $2, $3, $4) RETURNING id`
+		err = databaseConnection.QueryRow(row, classes.Title, classes.Resume, classes.Text, classes.Course).Scan(&id)
 	case "/courses":
-		item = &course{}
+		row := `INSERT INTO courses (name, description) VALUES ($1, $2) RETURNING id`
+		err = databaseConnection.QueryRow(row, courses.Name, courses.Description).Scan(&id)
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
 		return
 	}
-
-	if item == nil {
-		http.Error(w, "item not found", http.StatusNotFound)
-		return
-	}
-
-	err := json.NewDecoder(r.Body).Decode(&item)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	id := strconv.Itoa(rand.Intn(100000000))
-	switch item.(type) {
-	case *exercise:
-		item.(*exercise).ID = id
-		exercises = append(exercises, *item.(*exercise))
-	case *class:
-		item.(*class).ID = id
-		classes = append(classes, *item.(*class))
-	case *course:
-		item.(*course).ID = id
-		courses = append(courses, *item.(*course))
-	}
-
-	json.NewEncoder(w).Encode(item)
+	return
 }
 
 func update(w http.ResponseWriter, r *http.Request) {
+	_, err = updateItem(w, r)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func updateItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	databaseConnection, err := openConnection()
+	if err != nil {
+		return 0, err
+	}
+	defer databaseConnection.Close()
 
 	params := mux.Vars(r)
 	id := params["id"]
 
-	var item interface{}
 	switch r.URL.Path {
 	case "/exercises" + id:
-		item = &exercise{}
+		row, err := databaseConnection.Exec(`UPDATE exercises SET question=$1, answers=$2, correct_answer=$3, subject=$4`,
+			exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject)
+		if err != nil {
+			return 0, err
+		}
+		return row.RowsAffected()
 	case "/classes" + id:
-		item = &class{}
+		row, err := databaseConnection.Exec(`UPDATE classes SET title=$1, resume=$2, text=$3, course=$4`,
+			classes.Title, classes.Resume, classes.Text, classes.Course)
+		if err != nil {
+			return 0, err
+		}
+		return row.RowsAffected()
 	case "/courses" + id:
-		item = &course{}
+		row, err := databaseConnection.Exec(`UPDATE courses SET name=$1, description=$2`,
+			courses.Name, courses.Description)
+		if err != nil {
+			return 0, err
+		}
+		return row.RowsAffected()
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
-		return
+		return 0, nil
 	}
-
-	err := json.NewDecoder(r.Body).Decode(item)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	found := false
-	for index, existingItem := range exercises {
-		if existingItem.ID == params["id"] {
-			switch item.(type) {
-			case *exercise:
-				itemToUpdate := item.(*exercise)
-				itemToUpdate.Question = item.(*exercise).Question
-				itemToUpdate.Answers = item.(*exercise).Answers
-				itemToUpdate.CorrectAnswer = item.(*exercise).CorrectAnswer
-				itemToUpdate.Subject = item.(*exercise).Subject
-				itemToUpdate.Classes = item.(*exercise).Classes
-			case *class:
-				itemToUpdate := item.(*class)
-				itemToUpdate.Title = item.(*class).Title
-				itemToUpdate.Resume = item.(*class).Resume
-				itemToUpdate.Text = item.(*class).Text
-				itemToUpdate.Course = item.(*class).Course
-			case *course:
-				itemToUpdate := item.(*course)
-				itemToUpdate.Name = item.(*course).Name
-				itemToUpdate.Description = item.(*course).Description
-			}
-			exercises[index] = existingItem
-			item = true
-			break
-		}
-	}
-	if !found {
-		http.Error(w, "item not found", http.StatusNotFound)
-		return
-	}
-	json.NewEncoder(w).Encode(item)
 }
 
 func delete(w http.ResponseWriter, r *http.Request) {
+	_, err = deleteItem(w, r)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func deleteItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	databaseConnection, err := openConnection()
+	if err != nil {
+		return 0, err
+	}
+	defer databaseConnection.Close()
 
 	params := mux.Vars(r)
 	id := params["id"]
 
-	var itemFound bool
 	switch r.URL.Path {
 	case "/exercises" + id:
-		exercises = deleteExercise(exercises, id)
-		itemFound = true
+		row, err := databaseConnection.Exec(`DELETE FROM exercises WHERE id=$1`, id)
+		if err != nil {
+			return 0, err
+		}
+		return row.RowsAffected()
 	case "/classes" + id:
-		classes = deleteClass(classes, id)
-		itemFound = true
+		row, err := databaseConnection.Exec(`DELETE FROM classes WHERE id=$1`, id)
+		if err != nil {
+			return 0, err
+		}
+		return row.RowsAffected()
 	case "/courses" + id:
-		courses = deleteCourse(courses, id)
-		itemFound = true
+		row, err := databaseConnection.Exec(`DELETE FROM courses WHERE id=$1`, id)
+		if err != nil {
+			return 0, err
+		}
+		return row.RowsAffected()
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
-		return
+		return 0, nil
 	}
-
-	if !itemFound {
-		http.Error(w, "item not found", http.StatusNotFound)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func deleteExercise(exercises []exercise, id string) []exercise {
-	newList := make([]exercise, 0)
-	for _, item := range exercises {
-		if item.ID != id {
-			newList = append(newList, item)
-		}
-	}
-	return newList
-}
-
-func deleteClass(classes []class, id string) []class {
-	newList := make([]class, 0)
-	for _, item := range classes {
-		if item.ID != id {
-			newList = append(newList, item)
-		}
-	}
-	return newList
-}
-
-func deleteCourse(courses []course, id string) []course {
-	newList := make([]course, 0)
-	for _, item := range courses {
-		if item.ID != id {
-			newList = append(newList, item)
-		}
-	}
-	return newList
 }
