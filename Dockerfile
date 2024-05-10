@@ -4,7 +4,7 @@ WORKDIR /evys-learning
 
 COPY go.mod ./
 COPY go.sum ./
-COPY main.go ./
+COPY . .
 
 RUN go build -o evys-learning .
 
