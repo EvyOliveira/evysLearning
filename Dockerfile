@@ -1,12 +1,13 @@
-FROM golang:1.22.2
+FROM golang:1.22.2 AS BUILDER
 
 WORKDIR /evys-learning
 
 COPY go.mod ./
-COPY main.go ./
+COPY go.sum ./
+COPY . .
 
-RUN go build -o /server
+RUN go build -o evys-learning .
 
-EXPOSE 8080
-
-CMD ["/server"]
+FROM scratch 
+COPY --from=builder ./evys-learning /evys-learning
+CMD ["./evys-learning"]
