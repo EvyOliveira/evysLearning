@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/spf13/viper"
 )
@@ -24,7 +23,7 @@ var (
 )
 
 type exercise struct {
-	ID            uint32 `json:"id"`
+	ID            string `json:"id"`
 	Question      string `json:"question"`
 	Answers       string `json:"answers"`
 	CorrectAnswer string `json:"correct_answer"`
@@ -33,7 +32,7 @@ type exercise struct {
 }
 
 type class struct {
-	ID     uint32  `json:"id"`
+	ID     string  `json:"id"`
 	Title  string  `json:"title"`
 	Resume string  `json:"resume"`
 	Text   string  `json:"text"`
@@ -41,7 +40,7 @@ type class struct {
 }
 
 type course struct {
-	ID          uint32 `json:"id"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -69,7 +68,27 @@ type dbConfiguration struct {
 	Database string
 }
 
+func NewExercise(question, answers, ccorrectAnswer, subject string) *exercise {
+	return &exercise{
+		ID:            uuid.New().String(),
+		Question:      question,
+		Answers:       answers,
+		CorrectAnswer: ccorrectAnswer,
+		Subject:       subject,
+	}
+}
+
+func NewClass(title, resume, text string) *class {
+	return &class{
+		ID:     uuid.New().String(),
+		Title:  title,
+		Resume: resume,
+		Text:   text,
+	}
+}
+
 func main() {
+	openDatabaseConnection()
 	route := mux.NewRouter()
 
 	route.HandleFunc("/", getAll).Methods("GET")
@@ -90,12 +109,6 @@ func main() {
 
 	fmt.Println("starting server at port:8000")
 	log.Fatal(http.ListenAndServe(":8000", nil))
-}
-
-func init() {
-	viper.SetDefault("api.port", "8000")
-	viper.SetDefault("database.host", "localhost")
-	viper.SetDefault("database.port", "5432")
 }
 
 func load() error {
@@ -134,47 +147,16 @@ func getServerPort() string {
 	return config.API.Port
 }
 
-func openConnection() (*sql.DB, error) {
-	conf := getDB()
-
-	stringConnection := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disbale",
-		conf.Host, conf.Port, conf.User, conf.Password, conf.Database)
-
-	databaseConnection, err := sql.Open("postgres", stringConnection)
+func openDatabaseConnection() (*sql.DB, error) {
+	databaseConnection, err := sql.Open("postgres", "root:root@tcp(localhost:8000)/goexpert")
 	if err != nil {
-		panic(err)
+		log.Fatal("there is an error to connect to database.")
 	}
-
-	err = databaseConnection.Ping()
-	return databaseConnection, err
-}
-
-func createConnection() *sql.DB {
-	err := godotenv.Load(".env")
-
-	if err != nil {
-		log.Fatalf("error loading .env file")
-	}
-
-	db, err := sql.Open("postgres", os.Getenv("POSTGRES_URL"))
-
-	if err != nil {
-		panic(err)
-	}
-
-	err = db.Ping()
-
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("successful connection")
-
-	return db
+	return databaseConnection, nil
 }
 
 func getAll(w http.ResponseWriter, r *http.Request) {
-	databaseConnection, err := openConnection()
+	databaseConnection, err := openDatabaseConnection()
 	if err != nil {
 		return
 	}
@@ -198,7 +180,7 @@ func getAll(w http.ResponseWriter, r *http.Request) {
 func getById(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := openDatabaseConnection()
 	if err != nil {
 		return
 	}
@@ -225,7 +207,7 @@ func getById(w http.ResponseWriter, r *http.Request) {
 func create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := openDatabaseConnection()
 	if err != nil {
 		return
 	}
@@ -258,7 +240,7 @@ func update(w http.ResponseWriter, r *http.Request) {
 func updateItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := openDatabaseConnection()
 	if err != nil {
 		return 0, err
 	}
@@ -305,7 +287,7 @@ func delete(w http.ResponseWriter, r *http.Request) {
 func deleteItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := openDatabaseConnection()
 	if err != nil {
 		return 0, err
 	}
