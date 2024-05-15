@@ -9,7 +9,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
-	"github.com/spf13/viper"
+)
+
+const (
+	exercisesPath = "/exercises"
+	classesPath   = "/classes"
+	coursesPath   = "/courses"
 )
 
 var (
@@ -18,7 +23,6 @@ var (
 	courses   course
 	id        uint32
 	err       error
-	config    *configuration
 	data      []dataList
 )
 
@@ -51,29 +55,12 @@ type dataList struct {
 	Courses   []course   `json:"courses"`
 }
 
-type configuration struct {
-	API apiConfiguration
-	DB  dbConfiguration
-}
-
-type apiConfiguration struct {
-	Port string
-}
-
-type dbConfiguration struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	Database string
-}
-
-func NewExercise(question, answers, ccorrectAnswer, subject string) *exercise {
+func NewExercise(question, answers, correctAnswer, subject string) *exercise {
 	return &exercise{
 		ID:            uuid.New().String(),
 		Question:      question,
 		Answers:       answers,
-		CorrectAnswer: ccorrectAnswer,
+		CorrectAnswer: correctAnswer,
 		Subject:       subject,
 	}
 }
@@ -87,8 +74,16 @@ func NewClass(title, resume, text string) *class {
 	}
 }
 
+func NewCourse(name, description string) *course {
+	return &course{
+		ID:          uuid.New().String(),
+		Name:        name,
+		Description: description,
+	}
+}
+
 func main() {
-	openDatabaseConnection()
+	databaseConnection()
 	route := mux.NewRouter()
 
 	route.HandleFunc("/", getAll).Methods("GET")
@@ -107,60 +102,24 @@ func main() {
 	route.HandleFunc("/classes/{id}", update).Methods("PUT")
 	route.HandleFunc("/classes/{id}", delete).Methods("DELETE")
 
-	fmt.Println("starting server at port:8000")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	fmt.Println("starting server at port:8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func load() error {
-	viper.SetConfigFile("config")
-	viper.SetConfigFile("env")
-	viper.AddConfigPath(".")
-	err := viper.ReadInConfig()
-
-	if err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
-		}
-	}
-
-	configuration := new(configuration)
-	configuration.API = apiConfiguration{
-		Port: viper.GetString("api.port"),
-	}
-
-	configuration.DB = dbConfiguration{
-		Host:     viper.GetString("database.host"),
-		Port:     viper.GetString("database.port"),
-		User:     viper.GetString("database.user"),
-		Password: viper.GetString("database.password"),
-		Database: viper.GetString("database.database"),
-	}
-
-	return nil
-}
-
-func getDB() dbConfiguration {
-	return config.DB
-}
-
-func getServerPort() string {
-	return config.API.Port
-}
-
-func openDatabaseConnection() (*sql.DB, error) {
+func databaseConnection() (*sql.DB, error) {
 	databaseConnection, err := sql.Open("postgres", "root:root@tcp(localhost:8000)/goexpert")
 	if err != nil {
 		log.Fatal("there is an error to connect to database.")
 	}
+	defer databaseConnection.Close()
 	return databaseConnection, nil
 }
 
 func getAll(w http.ResponseWriter, r *http.Request) {
-	databaseConnection, err := openDatabaseConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return
 	}
-	defer databaseConnection.Close()
 
 	rows, err := databaseConnection.Query(`SELECT * FROM datalist`)
 	if err != nil {
@@ -180,20 +139,19 @@ func getAll(w http.ResponseWriter, r *http.Request) {
 func getById(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openDatabaseConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return
 	}
-	defer databaseConnection.Close()
 
 	switch r.URL.Path {
-	case "/exercises":
+	case exercisesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM exercises WHERE id=$1`, id)
 		err = row.Scan(&exercises.ID, &exercises.Question, &exercises.Answers, &exercises.CorrectAnswer, &exercises.Subject, &exercises.Subject, &exercises.Classes)
-	case "/classes":
+	case classesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
 		err = row.Scan(&classes.ID, &classes.Title, &classes.Resume, &classes.Text, &classes.Course)
-	case "/courses":
+	case coursesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
 		err = row.Scan(&courses.ID, &courses.Name, &courses.Description)
 	default:
@@ -207,20 +165,19 @@ func getById(w http.ResponseWriter, r *http.Request) {
 func create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openDatabaseConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return
 	}
-	defer databaseConnection.Close()
 
 	switch r.URL.Path {
-	case "/exercises":
+	case exercisesPath:
 		row := `INSERT INTO exercises (questions, answers, correctAnswer, subject, classes) VALUES ($1, $2, $3, $4, $5) RETURNING id`
 		err = databaseConnection.QueryRow(row, exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject, exercises.Classes).Scan(&id)
-	case "/classes":
+	case classesPath:
 		row := `INSERT INTO classes (title, resume, text, course) VALUES ($1, $2, $3, $4) RETURNING id`
 		err = databaseConnection.QueryRow(row, classes.Title, classes.Resume, classes.Text, classes.Course).Scan(&id)
-	case "/courses":
+	case coursesPath:
 		row := `INSERT INTO courses (name, description) VALUES ($1, $2) RETURNING id`
 		err = databaseConnection.QueryRow(row, courses.Name, courses.Description).Scan(&id)
 	default:
@@ -240,31 +197,30 @@ func update(w http.ResponseWriter, r *http.Request) {
 func updateItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openDatabaseConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return 0, err
 	}
-	defer databaseConnection.Close()
 
 	params := mux.Vars(r)
 	id := params["id"]
 
 	switch r.URL.Path {
-	case "/exercises" + id:
+	case exercisesPath + id:
 		row, err := databaseConnection.Exec(`UPDATE exercises SET question=$1, answers=$2, correct_answer=$3, subject=$4`,
 			exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/classes" + id:
+	case classesPath + id:
 		row, err := databaseConnection.Exec(`UPDATE classes SET title=$1, resume=$2, text=$3, course=$4`,
 			classes.Title, classes.Resume, classes.Text, classes.Course)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/courses" + id:
+	case coursesPath + id:
 		row, err := databaseConnection.Exec(`UPDATE courses SET name=$1, description=$2`,
 			courses.Name, courses.Description)
 		if err != nil {
@@ -287,29 +243,28 @@ func delete(w http.ResponseWriter, r *http.Request) {
 func deleteItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openDatabaseConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return 0, err
 	}
-	defer databaseConnection.Close()
 
 	params := mux.Vars(r)
 	id := params["id"]
 
 	switch r.URL.Path {
-	case "/exercises" + id:
+	case exercisesPath + id:
 		row, err := databaseConnection.Exec(`DELETE FROM exercises WHERE id=$1`, id)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/classes" + id:
+	case classesPath + id:
 		row, err := databaseConnection.Exec(`DELETE FROM classes WHERE id=$1`, id)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/courses" + id:
+	case coursesPath + id:
 		row, err := databaseConnection.Exec(`DELETE FROM courses WHERE id=$1`, id)
 		if err != nil {
 			return 0, err
