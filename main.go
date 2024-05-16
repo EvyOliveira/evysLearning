@@ -147,19 +147,19 @@ func getById(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case exercisesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM exercises WHERE id=$1`, id)
-		err = row.Scan(&exercises.ID, &exercises.Question, &exercises.Answers, &exercises.CorrectAnswer, &exercises.Subject, &exercises.Subject, &exercises.Classes)
+		_ = row.Scan(&exercises.ID, &exercises.Question, &exercises.Answers, &exercises.CorrectAnswer, &exercises.Subject, &exercises.Subject, &exercises.Classes)
+		return
 	case classesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
-		err = row.Scan(&classes.ID, &classes.Title, &classes.Resume, &classes.Text, &classes.Course)
+		_ = row.Scan(&classes.ID, &classes.Title, &classes.Resume, &classes.Text, &classes.Course)
+		return
 	case coursesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
-		err = row.Scan(&courses.ID, &courses.Name, &courses.Description)
+		_ = row.Scan(&courses.ID, &courses.Name, &courses.Description)
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
 		return
 	}
-
-	return
 }
 
 func create(w http.ResponseWriter, r *http.Request) {
@@ -173,18 +173,20 @@ func create(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case exercisesPath:
 		row := `INSERT INTO exercises (questions, answers, correctAnswer, subject, classes) VALUES ($1, $2, $3, $4, $5) RETURNING id`
-		err = databaseConnection.QueryRow(row, exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject, exercises.Classes).Scan(&id)
+		_ = databaseConnection.QueryRow(row, exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject, exercises.Classes).Scan(&id)
+		return
 	case classesPath:
 		row := `INSERT INTO classes (title, resume, text, course) VALUES ($1, $2, $3, $4) RETURNING id`
-		err = databaseConnection.QueryRow(row, classes.Title, classes.Resume, classes.Text, classes.Course).Scan(&id)
+		_ = databaseConnection.QueryRow(row, classes.Title, classes.Resume, classes.Text, classes.Course).Scan(&id)
+		return
 	case coursesPath:
 		row := `INSERT INTO courses (name, description) VALUES ($1, $2) RETURNING id`
-		err = databaseConnection.QueryRow(row, courses.Name, courses.Description).Scan(&id)
+		_ = databaseConnection.QueryRow(row, courses.Name, courses.Description).Scan(&id)
+		return
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
 		return
 	}
-	return
 }
 
 func update(w http.ResponseWriter, r *http.Request) {
