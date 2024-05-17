@@ -13,6 +13,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres-data:/var/lib/postgresql/data
 volumes:
   postgres-data:
