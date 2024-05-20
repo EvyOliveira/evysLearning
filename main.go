@@ -5,12 +5,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
-	"github.com/spf13/viper"
+)
+
+const (
+	exercisesPath = "/exercises"
+	classesPath   = "/classes"
+	coursesPath   = "/courses"
 )
 
 var (
@@ -19,12 +23,11 @@ var (
 	courses   course
 	id        uint32
 	err       error
-	config    *configuration
 	data      []dataList
 )
 
 type exercise struct {
-	ID            uint32 `json:"id"`
+	ID            string `json:"id"`
 	Question      string `json:"question"`
 	Answers       string `json:"answers"`
 	CorrectAnswer string `json:"correct_answer"`
@@ -33,7 +36,7 @@ type exercise struct {
 }
 
 type class struct {
-	ID     uint32  `json:"id"`
+	ID     string  `json:"id"`
 	Title  string  `json:"title"`
 	Resume string  `json:"resume"`
 	Text   string  `json:"text"`
@@ -41,7 +44,7 @@ type class struct {
 }
 
 type course struct {
-	ID          uint32 `json:"id"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -52,24 +55,35 @@ type dataList struct {
 	Courses   []course   `json:"courses"`
 }
 
-type configuration struct {
-	API apiConfiguration
-	DB  dbConfiguration
+func NewExercise(question, answers, correctAnswer, subject string) *exercise {
+	return &exercise{
+		ID:            uuid.New().String(),
+		Question:      question,
+		Answers:       answers,
+		CorrectAnswer: correctAnswer,
+		Subject:       subject,
+	}
 }
 
-type apiConfiguration struct {
-	Port string
+func NewClass(title, resume, text string) *class {
+	return &class{
+		ID:     uuid.New().String(),
+		Title:  title,
+		Resume: resume,
+		Text:   text,
+	}
 }
 
-type dbConfiguration struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	Database string
+func NewCourse(name, description string) *course {
+	return &course{
+		ID:          uuid.New().String(),
+		Name:        name,
+		Description: description,
+	}
 }
 
 func main() {
+	databaseConnection()
 	route := mux.NewRouter()
 
 	route.HandleFunc("/", getAll).Methods("GET")
@@ -88,97 +102,24 @@ func main() {
 	route.HandleFunc("/classes/{id}", update).Methods("PUT")
 	route.HandleFunc("/classes/{id}", delete).Methods("DELETE")
 
-	fmt.Println("starting server at port:8000")
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	fmt.Println("starting server at port:8080")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func init() {
-	viper.SetDefault("api.port", "8000")
-	viper.SetDefault("database.host", "localhost")
-	viper.SetDefault("database.port", "5432")
-}
-
-func load() error {
-	viper.SetConfigFile("config")
-	viper.SetConfigFile("env")
-	viper.AddConfigPath(".")
-	err := viper.ReadInConfig()
-
+func databaseConnection() (*sql.DB, error) {
+	databaseConnection, err := sql.Open("postgres", "root:root@tcp(localhost:8000)/goexpert")
 	if err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
-		}
+		log.Fatal("there is an error to connect to database.")
 	}
-
-	configuration := new(configuration)
-	configuration.API = apiConfiguration{
-		Port: viper.GetString("api.port"),
-	}
-
-	configuration.DB = dbConfiguration{
-		Host:     viper.GetString("database.host"),
-		Port:     viper.GetString("database.port"),
-		User:     viper.GetString("database.user"),
-		Password: viper.GetString("database.password"),
-		Database: viper.GetString("database.database"),
-	}
-
-	return nil
-}
-
-func getDB() dbConfiguration {
-	return config.DB
-}
-
-func getServerPort() string {
-	return config.API.Port
-}
-
-func openConnection() (*sql.DB, error) {
-	conf := getDB()
-
-	stringConnection := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disbale",
-		conf.Host, conf.Port, conf.User, conf.Password, conf.Database)
-
-	databaseConnection, err := sql.Open("postgres", stringConnection)
-	if err != nil {
-		panic(err)
-	}
-
-	err = databaseConnection.Ping()
-	return databaseConnection, err
-}
-
-func createConnection() *sql.DB {
-	err := godotenv.Load(".env")
-
-	if err != nil {
-		log.Fatalf("error loading .env file")
-	}
-
-	db, err := sql.Open("postgres", os.Getenv("POSTGRES_URL"))
-
-	if err != nil {
-		panic(err)
-	}
-
-	err = db.Ping()
-
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("successful connection")
-
-	return db
+	defer databaseConnection.Close()
+	return databaseConnection, nil
 }
 
 func getAll(w http.ResponseWriter, r *http.Request) {
-	databaseConnection, err := openConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return
 	}
-	defer databaseConnection.Close()
 
 	rows, err := databaseConnection.Query(`SELECT * FROM datalist`)
 	if err != nil {
@@ -198,54 +139,54 @@ func getAll(w http.ResponseWriter, r *http.Request) {
 func getById(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return
 	}
-	defer databaseConnection.Close()
 
 	switch r.URL.Path {
-	case "/exercises":
+	case exercisesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM exercises WHERE id=$1`, id)
-		err = row.Scan(&exercises.ID, &exercises.Question, &exercises.Answers, &exercises.CorrectAnswer, &exercises.Subject, &exercises.Subject, &exercises.Classes)
-	case "/classes":
+		_ = row.Scan(&exercises.ID, &exercises.Question, &exercises.Answers, &exercises.CorrectAnswer, &exercises.Subject, &exercises.Subject, &exercises.Classes)
+		return
+	case classesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
-		err = row.Scan(&classes.ID, &classes.Title, &classes.Resume, &classes.Text, &classes.Course)
-	case "/courses":
+		_ = row.Scan(&classes.ID, &classes.Title, &classes.Resume, &classes.Text, &classes.Course)
+		return
+	case coursesPath:
 		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
-		err = row.Scan(&courses.ID, &courses.Name, &courses.Description)
+		_ = row.Scan(&courses.ID, &courses.Name, &courses.Description)
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
 		return
 	}
-
-	return
 }
 
 func create(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return
 	}
-	defer databaseConnection.Close()
 
 	switch r.URL.Path {
-	case "/exercises":
+	case exercisesPath:
 		row := `INSERT INTO exercises (questions, answers, correctAnswer, subject, classes) VALUES ($1, $2, $3, $4, $5) RETURNING id`
-		err = databaseConnection.QueryRow(row, exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject, exercises.Classes).Scan(&id)
-	case "/classes":
+		_ = databaseConnection.QueryRow(row, exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject, exercises.Classes).Scan(&id)
+		return
+	case classesPath:
 		row := `INSERT INTO classes (title, resume, text, course) VALUES ($1, $2, $3, $4) RETURNING id`
-		err = databaseConnection.QueryRow(row, classes.Title, classes.Resume, classes.Text, classes.Course).Scan(&id)
-	case "/courses":
+		_ = databaseConnection.QueryRow(row, classes.Title, classes.Resume, classes.Text, classes.Course).Scan(&id)
+		return
+	case coursesPath:
 		row := `INSERT INTO courses (name, description) VALUES ($1, $2) RETURNING id`
-		err = databaseConnection.QueryRow(row, courses.Name, courses.Description).Scan(&id)
+		_ = databaseConnection.QueryRow(row, courses.Name, courses.Description).Scan(&id)
+		return
 	default:
 		http.Error(w, "path not found", http.StatusNotFound)
 		return
 	}
-	return
 }
 
 func update(w http.ResponseWriter, r *http.Request) {
@@ -258,31 +199,30 @@ func update(w http.ResponseWriter, r *http.Request) {
 func updateItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return 0, err
 	}
-	defer databaseConnection.Close()
 
 	params := mux.Vars(r)
 	id := params["id"]
 
 	switch r.URL.Path {
-	case "/exercises" + id:
+	case exercisesPath + id:
 		row, err := databaseConnection.Exec(`UPDATE exercises SET question=$1, answers=$2, correct_answer=$3, subject=$4`,
 			exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/classes" + id:
+	case classesPath + id:
 		row, err := databaseConnection.Exec(`UPDATE classes SET title=$1, resume=$2, text=$3, course=$4`,
 			classes.Title, classes.Resume, classes.Text, classes.Course)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/courses" + id:
+	case coursesPath + id:
 		row, err := databaseConnection.Exec(`UPDATE courses SET name=$1, description=$2`,
 			courses.Name, courses.Description)
 		if err != nil {
@@ -305,29 +245,28 @@ func delete(w http.ResponseWriter, r *http.Request) {
 func deleteItem(w http.ResponseWriter, r *http.Request) (int64, error) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
-	databaseConnection, err := openConnection()
+	databaseConnection, err := databaseConnection()
 	if err != nil {
 		return 0, err
 	}
-	defer databaseConnection.Close()
 
 	params := mux.Vars(r)
 	id := params["id"]
 
 	switch r.URL.Path {
-	case "/exercises" + id:
+	case exercisesPath + id:
 		row, err := databaseConnection.Exec(`DELETE FROM exercises WHERE id=$1`, id)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/classes" + id:
+	case classesPath + id:
 		row, err := databaseConnection.Exec(`DELETE FROM classes WHERE id=$1`, id)
 		if err != nil {
 			return 0, err
 		}
 		return row.RowsAffected()
-	case "/courses" + id:
+	case coursesPath + id:
 		row, err := databaseConnection.Exec(`DELETE FROM courses WHERE id=$1`, id)
 		if err != nil {
 			return 0, err
