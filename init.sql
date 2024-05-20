@@ -1,3 +1,7 @@
+CREATE DATEBASE EvysLearning;
+
+USE EvysLearning;
+
 CREATE TABLE Courses (
   id BIGSERIAL PRIMARY KEY,
   name VARCHAR(100),
