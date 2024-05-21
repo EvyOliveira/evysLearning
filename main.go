@@ -1,15 +1,18 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
 var exercises []exercise
+var singleExercise exercise
 
 type exercise struct {
 	ID            string `json:"id"`
@@ -34,6 +37,42 @@ type course struct {
 	Description string `json:"description"`
 }
 
+type databaseConfiguration struct {
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Database string
+}
+
+func loadDatabaseConfig() *databaseConfiguration {
+	config := &databaseConfiguration{
+		Host:     os.Getenv("DB_HOST"),
+		Port:     os.Getenv("DB_PORT"),
+		User:     os.Getenv("DB_USER"),
+		Password: os.Getenv("DB_PASSWORD"),
+		Database: os.Getenv("DB_NAME"),
+	}
+	if config.Host == "" || config.Port == "" || config.User == "" || config.Password == "" || config.Database == "" {
+		log.Fatalf("missing required environment variables")
+	}
+
+	return config
+}
+
+func openDatabaseConnection(config *databaseConfiguration) (*sql.DB, error) {
+	connection := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+		config.Host, config.Port, config.User, config.Password, config.Database)
+
+	databaseConnection, err := sql.Open("postgres", connection)
+	if err != nil {
+		return nil, err
+	}
+
+	err = databaseConnection.Ping()
+	return databaseConnection, err
+}
+
 func main() {
 	router := gin.Default()
 
@@ -48,67 +87,183 @@ func main() {
 	router.PUT("/exercises/:id", updateExercise)
 	router.DELETE("/exercises/:id", deleteExercise)
 
-	fmt.Println("starting server at port:8000")
-	log.Fatal(router.Run(":8000"))
+	fmt.Println("starting server at port:8080")
+	log.Fatal(router.Run(":8080"))
 }
 
 func getExercises(c *gin.Context) {
+	config, err := loadDatabaseConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	databaseConnection, err := openDatabaseConnection(config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer databaseConnection.Close()
+
+	rows, err := databaseConnection.Query(`SELECT * FROM exercises`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		err := rows.Scan(&singleExercise.ID, &singleExercise.Question, &singleExercise.Answers, &singleExercise.CorrectAnswer, &singleExercise.Subject)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		exercises = append(exercises, singleExercise)
+	}
 	c.JSON(http.StatusOK, exercises)
 }
 
 func getExerciseByID(c *gin.Context) {
+	config, err := loadDatabaseConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	databaseConnection, err := openDatabaseConnection(config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer databaseConnection.Close()
+
 	id := c.Param("id")
 
-	for _, exercise := range exercises {
-		if exercise.ID == id {
-			c.JSON(http.StatusOK, exercise)
-			return
-		}
+	row := databaseConnection.QueryRow(`SELECT * FROM exercises WHERE id = $1`, id)
+	err = row.Scan(&singleExercise.ID, &singleExercise.Question, &singleExercise.Answers, &singleExercise.CorrectAnswer, &singleExercise.Subject)
+
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"message": "exercise not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"message": "exercise not found"})
+	c.JSON(http.StatusOK, singleExercise)
 }
 
 func createExercise(c *gin.Context) {
-	var newExercise exercise
-	if err := c.BindJSON(&newExercise); err != nil {
+	if err := c.BindJSON(&singleExercise); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error to bind create exercise": err.Error()})
 		return
 	}
-	exercises = append(exercises, newExercise)
-	c.JSON(http.StatusCreated, newExercise)
+
+	config, err := loadDatabaseConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	databaseConnection, err := openDatabaseConnection(config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer databaseConnection.Close()
+
+	result, err := databaseConnection.Exec(`INSERT INTO exercises (question, answers, correct_answer, subject) VALUES ($1, $2, $3, $4)`, singleExercise.Question, singleExercise.Answers, singleExercise.CorrectAnswer, singleExercise.Subject)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	rowsAffect, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error to create exercise"})
+		return
+	}
+
+	if rowsAffect != 1 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error to create exercise"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, singleExercise)
 }
 
 func updateExercise(c *gin.Context) {
 	id := c.Param("id")
-	var updatedExercise exercise
-	if err := c.BindJSON(&updatedExercise); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error to bind update exercise": err.Error()})
+
+	if err := c.BindJSON(&singleExercise); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	for i, exercise := range exercises {
-		if exercise.ID == id {
-			exercises[i] = updatedExercise
-			c.JSON(http.StatusOK, updatedExercise)
-			return
-		}
+
+	config, err := loadDatabaseConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	c.JSON(http.StatusNotFound, gin.H{"message": "exercise not found"})
+
+	databaseConnection, err := openDatabaseConnection(config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer databaseConnection.Close()
+
+	result, err := databaseConnection.Exec(`UPDATE exercises SET question = $1, answers = $2, correct_answer = $3, subject = $4 WHERE id = $5`,
+		singleExercise.Question, singleExercise.Answers, singleExercise.CorrectAnswer, singleExercise.Subject, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if rowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"message": "exercise not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "exercise updated successfully"})
 }
 
 func deleteExercise(c *gin.Context) {
 	id := c.Param("id")
-	var newExercises []exercise
 
-	for _, exercise := range exercises {
-		if exercise.ID != id {
-			newExercises = append(newExercises, exercise)
-		}
+	config, err := loadDatabaseConfig()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 
-	if len(newExercises) != len(exercises) {
-		exercises = newExercises
-		c.JSON(http.StatusNoContent, nil)
-	} else {
+	databaseConnection, err := openDatabaseConnection(config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer databaseConnection.Close()
+
+	result, err := databaseConnection.Exec(`DELETE FROM exercises WHERE id = $1`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if rowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"message": "exercise not found"})
+	} else {
+		c.JSON(http.StatusNoContent, nil)
 	}
 }
