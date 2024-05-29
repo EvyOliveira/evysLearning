@@ -2,13 +2,13 @@ CREATE DATEBASE EvysLearning;
 
 USE EvysLearning;
 
-CREATE TABLE Courses (
+CREATE TABLE courses (
   id BIGSERIAL PRIMARY KEY,
   name VARCHAR(100),
   description VARCHAR(150)
 );
 
-CREATE TABLE Classes (
+CREATE TABLE classes (
   id BIGSERIAL PRIMARY KEY,
   title VARCHAR(50),
   resume VARCHAR(150),
@@ -18,7 +18,7 @@ CREATE TABLE Classes (
 	CONSTRAINT fk_class_course_id FOREIGN KEY (course_id) REFERENCES Courses(id)
 );
 
-CREATE TABLE Exercises (
+CREATE TABLE exercises (
   id BIGSERIAL PRIMARY KEY,
   question VARCHAR(70),
   answer VARCHAR(150),
