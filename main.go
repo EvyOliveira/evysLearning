@@ -15,7 +15,7 @@ import (
 )
 
 type exercise struct {
-	ID            uint32 `json:"id"`
+	ID            uint64 `json:"id"`
 	Question      string `json:"question"`
 	Answer        string `json:"answer"`
 	CorrectAnswer string `json:"correct_answer"`
@@ -24,7 +24,7 @@ type exercise struct {
 }
 
 type class struct {
-	ID     uint32  `json:"id"`
+	ID     uint64  `json:"id"`
 	Title  string  `json:"title"`
 	Resume string  `json:"resume"`
 	Text   string  `json:"text"`
@@ -32,7 +32,7 @@ type class struct {
 }
 
 type course struct {
-	ID          uint32 `json:"id"`
+	ID          uint64 `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
@@ -49,9 +49,6 @@ func databaseConnection() (*sql.DB, error) {
 	if err != nil {
 		panic(err)
 	}
-
-	defer databaseConnection.Close()
-
 	return databaseConnection, err
 }
 
@@ -88,13 +85,21 @@ func getExercises(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	rows, err := db.Query("SELECT * FROM exercises")
+	stmt, err := db.Prepare("SELECT * FROM exercises")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer stmt.Close()
+
+	rows, err := stmt.Query()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
 
 	var allExercises []exercise
 	for rows.Next() {
@@ -115,13 +120,21 @@ func getClasses(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	rows, err := db.Query("SELECT * FROM classes")
+	stmt, err := db.Prepare("SELECT * FROM classes")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer stmt.Close()
+
+	rows, err := stmt.Query()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
 
 	var allClasses []class
 	for rows.Next() {
@@ -142,13 +155,21 @@ func getCourses(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	rows, err := db.Query("SELECT * FROM courses")
+	stmt, err := db.Prepare("SELECT * FROM courses")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer stmt.Close()
+
+	rows, err := stmt.Query()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
 
 	var allCourses []course
 	for rows.Next() {
@@ -175,9 +196,17 @@ func getExerciseByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("SELECT * FROM exercises WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
 
 	var exercise exercise
-	row := db.QueryRow("SELECT * FROM exercises WHERE id = $1", exerciseID)
+	row := stmt.QueryRow(exerciseID)
 	err = row.Scan(&exercise.ID, &exercise.Question, &exercise.Answer, &exercise.CorrectAnswer, &exercise.Subject)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "exercise not found"})
@@ -200,9 +229,17 @@ func getClassByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("SELECT * FROM classes WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
 
 	var class class
-	row := db.QueryRow("SELECT * FROM classes WHERE id = $1", classID)
+	row := stmt.QueryRow(classID)
 	err = row.Scan(&class.ID, &class.Title, &class.Resume, &class.Text)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
@@ -225,9 +262,17 @@ func getCourseByID(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("SELECT * FROM courses WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
 
 	var course course
-	row := db.QueryRow("SELECT * FROM courses WHERE id = $1", courseID)
+	row := stmt.QueryRow(courseID)
 	err = row.Scan(&course.ID, &course.Name, &course.Description)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
@@ -246,20 +291,26 @@ func createExercise(c *gin.Context) {
 		return
 	}
 
-	exercise.ID = uuid.New().ID()
+	exercise.ID = uint64(uuid.New().ID())
 
 	db, err := databaseConnection()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("INSERT INTO exercises (question, answer, correct_answer, subject) VALUES ($1, $2, $3, $4)", exercise.Question, exercise.Answer, exercise.CorrectAnswer, exercise.Subject)
+	stmt, err := db.Prepare("INSERT INTO exercises (question, answer, correct_answer, subject) VALUES ($1, $2, $3, $4)")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer stmt.Close()
 
+	_, err = stmt.Exec(exercise.Question, exercise.Answer, exercise.CorrectAnswer, exercise.Subject)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
 	c.JSON(http.StatusCreated, exercise)
 }
 
@@ -271,20 +322,27 @@ func createClass(c *gin.Context) {
 		return
 	}
 
-	class.ID = uuid.New().ID()
+	class.ID = uint64(uuid.New().ID())
 
 	db, err := databaseConnection()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("INSERT INTO classes (title, resume, text) VALUES ($1, $2, $3)", class.Title, class.Resume, class.Text)
+	stmt, err := db.Prepare("INSERT INTO classes (title, resume, text) VALUES ($1, $2, $3)")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer stmt.Close()
 
+	_, err = db.Exec(class.Title, class.Resume, class.Text)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusCreated, class)
 }
 
@@ -296,20 +354,27 @@ func createCourse(c *gin.Context) {
 		return
 	}
 
-	course.ID = uuid.New().ID()
+	course.ID = uint64(uuid.New().ID())
 
 	db, err := databaseConnection()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("INSERT INTO classes (name, description) VALUES ($1, $2)", course.Name, course.Description)
+	stmt, err := db.Prepare("INSERT INTO courses (name, description) VALUES ($1, $2)")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer stmt.Close()
 
+	_, err = db.Exec(course.Name, course.Description)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusCreated, course)
 }
 
@@ -327,20 +392,25 @@ func updateExercise(c *gin.Context) {
 		return
 	}
 
-	updatedExercise.ID = uint32(exerciseID)
-
 	db, err := databaseConnection()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("UPDATE exercises SET question = $1, answer = $2, correct_answer = $3, subject = $4 WHERE id = $5", updatedExercise.Question, updatedExercise.Answer, updatedExercise.CorrectAnswer, updatedExercise.Subject, exerciseID)
+	stmt, err := db.Prepare("UPDATE exercises SET question = $1, answer = $2, correct_answer = $3, subject = $4 WHERE id = $5")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(updatedExercise.Question, updatedExercise.Answer, updatedExercise.CorrectAnswer, updatedExercise.Subject, exerciseID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error updating exercise: " + err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, updatedExercise)
 }
 
@@ -358,20 +428,25 @@ func updateClass(c *gin.Context) {
 		return
 	}
 
-	updatedClass.ID = uint32(classID)
-
 	db, err := databaseConnection()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("UPDATE classes SET title = $1, resume = $2, text = $3 WHERE id = $5", updatedClass.Title, updatedClass.Resume, updatedClass.Text, classID)
+	stmt, err := db.Prepare("UPDATE classes SET title = $1, resume = $2, text = $3 WHERE id = $4")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(updatedClass.Title, updatedClass.Resume, updatedClass.Text, classID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error updating class: " + err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, updatedClass)
 }
 
@@ -389,20 +464,27 @@ func updateCourse(c *gin.Context) {
 		return
 	}
 
-	updatedCourse.ID = uint32(courseID)
+	updatedCourse.ID = uint64(courseID)
 
 	db, err := databaseConnection()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("UPDATE courses SET name = $1, description = $2 WHERE id = $3", updatedCourse.Name, updatedCourse.Description, courseID)
+	stmt, err := db.Prepare("UPDATE courses SET name = $1, description = $2 WHERE id = $3")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(updatedCourse.Name, updatedCourse.Description, courseID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error updating course: " + err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, updatedCourse)
 }
 
@@ -418,13 +500,20 @@ func deleteExercise(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("DELETE FROM exercises WHERE id = $1", exerciseID)
+	stmt, err := db.Prepare("DELETE FROM exercises WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(strconv.Itoa(exerciseID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error deleting exercise: " + err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "exercise deleted"})
 }
 
@@ -440,13 +529,20 @@ func deleteClass(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("DELETE FROM classes WHERE id = $1", classID)
+	stmt, err := db.Prepare("DELETE FROM classes WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(strconv.Itoa(classID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error deleting class: " + err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "class deleted"})
 }
 
@@ -462,12 +558,19 @@ func deleteCourse(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer db.Close()
 
-	_, err = db.Exec("DELETE FROM classes WHERE id = $1", courseID)
+	stmt, err := db.Prepare("DELETE FROM courses WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(strconv.Itoa(courseID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "error deleting course: " + err.Error()})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"message": "course deleted"})
 }
