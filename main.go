@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -15,7 +16,7 @@ import (
 )
 
 type exercise struct {
-	ID            uint64 `json:"id"`
+	ID            int64  `json:"id"`
 	Question      string `json:"question"`
 	Answer        string `json:"answer"`
 	CorrectAnswer string `json:"correct_answer"`
@@ -24,7 +25,7 @@ type exercise struct {
 }
 
 type class struct {
-	ID     uint64  `json:"id"`
+	ID     int64   `json:"id"`
 	Title  string  `json:"title"`
 	Resume string  `json:"resume"`
 	Text   string  `json:"text"`
@@ -32,9 +33,43 @@ type class struct {
 }
 
 type course struct {
-	ID          uint64 `json:"id"`
+	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+func NewExercise(id int64, question, answer, correctAnswer, subject string) (*exercise, error) {
+	exercise := &exercise{
+		ID:            id,
+		Question:      question,
+		Answer:        answer,
+		CorrectAnswer: correctAnswer,
+		Subject:       subject,
+	}
+	err := exercise.isValid()
+	if err != nil {
+		return nil, err
+	}
+	return exercise, nil
+}
+
+func (e *exercise) isValid() error {
+	if e.ID < 0 {
+		return errors.New("invalid exercise id")
+	}
+	if e.Question == "" {
+		return errors.New("invalid exercise question")
+	}
+	if e.Answer == "" {
+		return errors.New("invalid exercise answer")
+	}
+	if e.CorrectAnswer == "" {
+		return errors.New("invalid exercise correct answer")
+	}
+	if e.Subject == "" {
+		return errors.New("invalid exercise subject")
+	}
+	return nil
 }
 
 func databaseConnection() (*sql.DB, error) {
@@ -291,7 +326,7 @@ func createExercise(c *gin.Context) {
 		return
 	}
 
-	exercise.ID = uint64(uuid.New().ID())
+	exercise.ID = int64(uuid.New().ID())
 
 	db, err := databaseConnection()
 	if err != nil {
@@ -322,7 +357,7 @@ func createClass(c *gin.Context) {
 		return
 	}
 
-	class.ID = uint64(uuid.New().ID())
+	class.ID = int64(uuid.New().ID())
 
 	db, err := databaseConnection()
 	if err != nil {
@@ -354,7 +389,7 @@ func createCourse(c *gin.Context) {
 		return
 	}
 
-	course.ID = uint64(uuid.New().ID())
+	course.ID = int64(uuid.New().ID())
 
 	db, err := databaseConnection()
 	if err != nil {
@@ -464,7 +499,7 @@ func updateCourse(c *gin.Context) {
 		return
 	}
 
-	updatedCourse.ID = uint64(courseID)
+	updatedCourse.ID = int64(courseID)
 
 	db, err := databaseConnection()
 	if err != nil {
