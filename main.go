@@ -46,14 +46,28 @@ func NewExercise(id int64, question, answer, correctAnswer, subject string) (*ex
 		CorrectAnswer: correctAnswer,
 		Subject:       subject,
 	}
-	err := exercise.isValid()
+	err := exercise.exerciseFieldValidator()
 	if err != nil {
 		return nil, err
 	}
 	return exercise, nil
 }
 
-func (e *exercise) isValid() error {
+func NewClass(id int64, title, resume, text string) (*class, error) {
+	class := &class{
+		ID:     id,
+		Title:  title,
+		Resume: resume,
+		Text:   text,
+	}
+	err := class.classFieldValidator()
+	if err != nil {
+		return nil, err
+	}
+	return class, nil
+}
+
+func (e *exercise) exerciseFieldValidator() error {
 	if e.ID < 0 {
 		return errors.New("invalid exercise id")
 	}
@@ -68,6 +82,22 @@ func (e *exercise) isValid() error {
 	}
 	if e.Subject == "" {
 		return errors.New("invalid exercise subject")
+	}
+	return nil
+}
+
+func (c *class) classFieldValidator() error {
+	if c.ID < 0 {
+		return errors.New("invalid class id")
+	}
+	if c.Title == "" {
+		return errors.New("invalid class title")
+	}
+	if c.Resume == "" {
+		return errors.New("invalid class resume")
+	}
+	if c.Text == "" {
+		return errors.New("invalid class text")
 	}
 	return nil
 }
