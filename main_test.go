@@ -50,3 +50,18 @@ func TestGivenAnEmptyText_WhenCreateANewClass_ThenShouldReceiveAnError(t *testin
 	class := class{ID: 67890, Title: "Linear Programming", Resume: "Algorithms and methods for the Linear Programming approach."}
 	assert.Error(t, class.classFieldValidator(), "invalid class text")
 }
+
+func TestGivenAnEmptyId_WhenCreateANewCourse_ThenShouldReceiveAnError(t *testing.T) {
+	course := course{}
+	assert.Error(t, course.courseFieldValidator(), "invalid course id")
+}
+
+func TestGivenAnEmptyName_WhenCreateANewCourse_ThenShouldReceiveAnError(t *testing.T) {
+	course := course{ID: 12345}
+	assert.Error(t, course.courseFieldValidator(), "invalid course name")
+}
+
+func TestGivenAnEmptyDescription_WhenCreateANewCourse_ThenShouldReceiveAnError(t *testing.T) {
+	course := course{ID: 12345, Name: "Analysis and systems development"}
+	assert.Error(t, course.courseFieldValidator(), "invalid course description")
+}

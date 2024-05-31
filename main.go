@@ -67,6 +67,19 @@ func NewClass(id int64, title, resume, text string) (*class, error) {
 	return class, nil
 }
 
+func NewCourse(id int64, name, description string) (*course, error) {
+	course := &course{
+		ID:          id,
+		Name:        name,
+		Description: description,
+	}
+	err := course.courseFieldValidator()
+	if err != nil {
+		return nil, err
+	}
+	return course, nil
+}
+
 func (e *exercise) exerciseFieldValidator() error {
 	if e.ID < 0 {
 		return errors.New("invalid exercise id")
@@ -98,6 +111,19 @@ func (c *class) classFieldValidator() error {
 	}
 	if c.Text == "" {
 		return errors.New("invalid class text")
+	}
+	return nil
+}
+
+func (c *course) courseFieldValidator() error {
+	if c.ID < 0 {
+		return errors.New("invalid course id")
+	}
+	if c.Name == "" {
+		return errors.New("invalid course name")
+	}
+	if c.Description == "" {
+		return errors.New("invalid course description")
 	}
 	return nil
 }
