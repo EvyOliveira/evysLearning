@@ -42,6 +42,14 @@ $ cd evys-learning
 # To synchronize code dependencies
 $ go mod tidy
 
+# Start and run containers in background
+$ docker-compose up -d
+
+# Allows command execution in the bash shell inside the container
+$ docker-compose exec postgres bash
+
+# Connect PostgreSQL database server running on local machine using psql command line too
+$ psql -h localhost -p 5432 -U postgres
 ```
 
 ---

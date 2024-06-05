@@ -2,38 +2,30 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
-	"github.com/gorilla/mux"
-	"github.com/joho/godotenv"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
-	"github.com/spf13/viper"
-)
-
-var (
-	exercises exercise
-	classes   class
-	courses   course
-	id        uint32
-	err       error
-	config    *configuration
-	data      []dataList
 )
 
 type exercise struct {
-	ID            uint32 `json:"id"`
+	ID            int64  `json:"id"`
 	Question      string `json:"question"`
-	Answers       string `json:"answers"`
+	Answer        string `json:"answer"`
 	CorrectAnswer string `json:"correct_answer"`
 	Subject       string `json:"subject"`
 	Classes       *class `json:"classes"`
 }
 
 type class struct {
-	ID     uint32  `json:"id"`
+	ID     int64   `json:"id"`
 	Title  string  `json:"title"`
 	Resume string  `json:"resume"`
 	Text   string  `json:"text"`
@@ -41,300 +33,635 @@ type class struct {
 }
 
 type course struct {
-	ID          uint32 `json:"id"`
+	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-type dataList struct {
-	Exercises []exercise `json:"exercises"`
-	Classes   []class    `json:"classes"`
-	Courses   []course   `json:"courses"`
-}
-
-type configuration struct {
-	API apiConfiguration
-	DB  dbConfiguration
-}
-
-type apiConfiguration struct {
-	Port string
-}
-
-type dbConfiguration struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	Database string
-}
-
-func main() {
-	route := mux.NewRouter()
-
-	route.HandleFunc("/", getAll).Methods("GET")
-	route.HandleFunc("/exercises/{id}", getById).Methods("GET")
-	route.HandleFunc("/exercises/{id}", create).Methods("POST")
-	route.HandleFunc("/exercises/{id}", update).Methods("PUT")
-	route.HandleFunc("/exercises/{id}", delete).Methods("DELETE")
-
-	route.HandleFunc("/classes/{id}", getById).Methods("GET")
-	route.HandleFunc("/classes/{id}", create).Methods("POST")
-	route.HandleFunc("/classes/{id}", update).Methods("PUT")
-	route.HandleFunc("/classes/{id}", delete).Methods("DELETE")
-
-	route.HandleFunc("/courses/{id}", getById).Methods("GET")
-	route.HandleFunc("/classes/{id}", create).Methods("POST")
-	route.HandleFunc("/classes/{id}", update).Methods("PUT")
-	route.HandleFunc("/classes/{id}", delete).Methods("DELETE")
-
-	fmt.Println("starting server at port:8000")
-	log.Fatal(http.ListenAndServe(":8000", nil))
-}
-
-func init() {
-	viper.SetDefault("api.port", "8000")
-	viper.SetDefault("database.host", "localhost")
-	viper.SetDefault("database.port", "5432")
-}
-
-func load() error {
-	viper.SetConfigFile("config")
-	viper.SetConfigFile("env")
-	viper.AddConfigPath(".")
-	err := viper.ReadInConfig()
-
+func NewExercise(id int64, question, answer, correctAnswer, subject string) (*exercise, error) {
+	exercise := &exercise{
+		ID:            id,
+		Question:      question,
+		Answer:        answer,
+		CorrectAnswer: correctAnswer,
+		Subject:       subject,
+	}
+	err := exercise.exerciseFieldValidator()
 	if err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return err
-		}
+		return nil, err
 	}
+	return exercise, nil
+}
 
-	configuration := new(configuration)
-	configuration.API = apiConfiguration{
-		Port: viper.GetString("api.port"),
+func NewClass(id int64, title, resume, text string) (*class, error) {
+	class := &class{
+		ID:     id,
+		Title:  title,
+		Resume: resume,
+		Text:   text,
 	}
-
-	configuration.DB = dbConfiguration{
-		Host:     viper.GetString("database.host"),
-		Port:     viper.GetString("database.port"),
-		User:     viper.GetString("database.user"),
-		Password: viper.GetString("database.password"),
-		Database: viper.GetString("database.database"),
+	err := class.classFieldValidator()
+	if err != nil {
+		return nil, err
 	}
+	return class, nil
+}
 
+func NewCourse(id int64, name, description string) (*course, error) {
+	course := &course{
+		ID:          id,
+		Name:        name,
+		Description: description,
+	}
+	err := course.courseFieldValidator()
+	if err != nil {
+		return nil, err
+	}
+	return course, nil
+}
+
+func (e *exercise) exerciseFieldValidator() error {
+	if e.ID < 0 {
+		return errors.New("invalid exercise id")
+	}
+	if e.Question == "" {
+		return errors.New("invalid exercise question")
+	}
+	if e.Answer == "" {
+		return errors.New("invalid exercise answer")
+	}
+	if e.CorrectAnswer == "" {
+		return errors.New("invalid exercise correct answer")
+	}
+	if e.Subject == "" {
+		return errors.New("invalid exercise subject")
+	}
 	return nil
 }
 
-func getDB() dbConfiguration {
-	return config.DB
+func (c *class) classFieldValidator() error {
+	if c.ID < 0 {
+		return errors.New("invalid class id")
+	}
+	if c.Title == "" {
+		return errors.New("invalid class title")
+	}
+	if c.Resume == "" {
+		return errors.New("invalid class resume")
+	}
+	if c.Text == "" {
+		return errors.New("invalid class text")
+	}
+	return nil
 }
 
-func getServerPort() string {
-	return config.API.Port
+func (c *course) courseFieldValidator() error {
+	if c.ID < 0 {
+		return errors.New("invalid course id")
+	}
+	if c.Name == "" {
+		return errors.New("invalid course name")
+	}
+	if c.Description == "" {
+		return errors.New("invalid course description")
+	}
+	return nil
 }
 
-func openConnection() (*sql.DB, error) {
-	conf := getDB()
+func databaseConnection() (*sql.DB, error) {
+	host := os.Getenv("POSTGRES_HOST")
+	port := os.Getenv("POSTGRES_PORT")
+	user := os.Getenv("POSTGRES_USER")
+	password := os.Getenv("POSTGRES_PASSWORD")
+	dbname := os.Getenv("POSTGRES_DB")
 
-	stringConnection := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disbale",
-		conf.Host, conf.Port, conf.User, conf.Password, conf.Database)
-
-	databaseConnection, err := sql.Open("postgres", stringConnection)
+	connection := fmt.Sprint("postgres", "host=%s port=%s user=%s password=%s dbname=%s", host, port, user, password, dbname)
+	databaseConnection, err := sql.Open("postgres", connection)
 	if err != nil {
 		panic(err)
 	}
-
-	err = databaseConnection.Ping()
 	return databaseConnection, err
 }
 
-func createConnection() *sql.DB {
-	err := godotenv.Load(".env")
+func main() {
+	router := gin.Default()
 
-	if err != nil {
-		log.Fatalf("error loading .env file")
-	}
+	router.GET("/exercises", getExercises)
+	router.GET("/classes", getClasses)
+	router.GET("/courses", getCourses)
 
-	db, err := sql.Open("postgres", os.Getenv("POSTGRES_URL"))
+	router.GET("/exercises/:id", getExerciseByID)
+	router.GET("/classes/:id", getClassByID)
+	router.GET("/courses/:id", getCourseByID)
 
-	if err != nil {
-		panic(err)
-	}
+	router.POST("/exercises/:id}", createExercise)
+	router.POST("/classes/:id}", createClass)
+	router.POST("/courses/:id}", createCourse)
 
-	err = db.Ping()
+	router.PUT("/exercises/:id", updateExercise)
+	router.PUT("/classes/:id", updateClass)
+	router.PUT("/courses/:id", updateCourse)
 
-	if err != nil {
-		panic(err)
-	}
+	router.DELETE("/exercises/:id", deleteExercise)
+	router.DELETE("/classes/:id", deleteClass)
+	router.DELETE("/courses/:id", deleteCourse)
 
-	fmt.Println("successful connection")
-
-	return db
+	fmt.Println("starting server at port:8080")
+	log.Fatal(router.Run(":8080"))
 }
 
-func getAll(w http.ResponseWriter, r *http.Request) {
-	databaseConnection, err := openConnection()
+func getExercises(c *gin.Context) {
+	db, err := databaseConnection()
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer databaseConnection.Close()
+	defer db.Close()
 
-	rows, err := databaseConnection.Query(`SELECT * FROM datalist`)
+	stmt, err := db.Prepare("SELECT * FROM exercises")
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	defer stmt.Close()
 
+	rows, err := stmt.Query()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	var allExercises []exercise
 	for rows.Next() {
-		var allData dataList
-		err = rows.Scan(&allData.Exercises, &allData.Classes, &allData.Courses)
+		var ex exercise
+		err := rows.Scan(&ex.ID, &ex.Question, &ex.Answer, &ex.CorrectAnswer, &ex.Subject)
 		if err != nil {
-			continue
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
-		data = append(data, allData)
+		allExercises = append(allExercises, ex)
 	}
+	c.JSON(http.StatusOK, allExercises)
 }
 
-func getById(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-
-	databaseConnection, err := openConnection()
+func getClasses(c *gin.Context) {
+	db, err := databaseConnection()
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer databaseConnection.Close()
+	defer db.Close()
 
-	switch r.URL.Path {
-	case "/exercises":
-		row := databaseConnection.QueryRow(`SELECT * FROM exercises WHERE id=$1`, id)
-		err = row.Scan(&exercises.ID, &exercises.Question, &exercises.Answers, &exercises.CorrectAnswer, &exercises.Subject, &exercises.Subject, &exercises.Classes)
-	case "/classes":
-		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
-		err = row.Scan(&classes.ID, &classes.Title, &classes.Resume, &classes.Text, &classes.Course)
-	case "/courses":
-		row := databaseConnection.QueryRow(`SELECT * FROM classes WHERE id=$1`, id)
-		err = row.Scan(&courses.ID, &courses.Name, &courses.Description)
-	default:
-		http.Error(w, "path not found", http.StatusNotFound)
+	stmt, err := db.Prepare("SELECT * FROM classes")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.Query()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	var allClasses []class
+	for rows.Next() {
+		var cl class
+		err := rows.Scan(&cl.ID, &cl.Title, &cl.Resume, &cl.Text)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		allClasses = append(allClasses, cl)
+	}
+	c.JSON(http.StatusOK, allClasses)
+}
+
+func getCourses(c *gin.Context) {
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("SELECT * FROM courses")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	rows, err := stmt.Query()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	var allCourses []course
+	for rows.Next() {
+		var co course
+		err := rows.Scan(&co.ID, &co.Name, &co.Description)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		allCourses = append(allCourses, co)
+	}
+	c.JSON(http.StatusOK, allCourses)
+}
+
+func getExerciseByID(c *gin.Context) {
+	exerciseID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid exercise ID"})
 		return
 	}
 
-	return
-}
-
-func create(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-
-	databaseConnection, err := openConnection()
+	db, err := databaseConnection()
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer databaseConnection.Close()
+	defer db.Close()
 
-	switch r.URL.Path {
-	case "/exercises":
-		row := `INSERT INTO exercises (questions, answers, correctAnswer, subject, classes) VALUES ($1, $2, $3, $4, $5) RETURNING id`
-		err = databaseConnection.QueryRow(row, exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject, exercises.Classes).Scan(&id)
-	case "/classes":
-		row := `INSERT INTO classes (title, resume, text, course) VALUES ($1, $2, $3, $4) RETURNING id`
-		err = databaseConnection.QueryRow(row, classes.Title, classes.Resume, classes.Text, classes.Course).Scan(&id)
-	case "/courses":
-		row := `INSERT INTO courses (name, description) VALUES ($1, $2) RETURNING id`
-		err = databaseConnection.QueryRow(row, courses.Name, courses.Description).Scan(&id)
-	default:
-		http.Error(w, "path not found", http.StatusNotFound)
+	stmt, err := db.Prepare("SELECT * FROM exercises WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	return
-}
+	defer stmt.Close()
 
-func update(w http.ResponseWriter, r *http.Request) {
-	_, err = updateItem(w, r)
-	if err != nil {
-		panic(err)
+	var exercise exercise
+	row := stmt.QueryRow(exerciseID)
+	err = row.Scan(&exercise.ID, &exercise.Question, &exercise.Answer, &exercise.CorrectAnswer, &exercise.Subject)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "exercise not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 }
 
-func updateItem(w http.ResponseWriter, r *http.Request) (int64, error) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-
-	databaseConnection, err := openConnection()
+func getClassByID(c *gin.Context) {
+	classID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		return 0, err
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid class ID"})
+		return
 	}
-	defer databaseConnection.Close()
 
-	params := mux.Vars(r)
-	id := params["id"]
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
 
-	switch r.URL.Path {
-	case "/exercises" + id:
-		row, err := databaseConnection.Exec(`UPDATE exercises SET question=$1, answers=$2, correct_answer=$3, subject=$4`,
-			exercises.Question, exercises.Answers, exercises.CorrectAnswer, exercises.Subject)
-		if err != nil {
-			return 0, err
-		}
-		return row.RowsAffected()
-	case "/classes" + id:
-		row, err := databaseConnection.Exec(`UPDATE classes SET title=$1, resume=$2, text=$3, course=$4`,
-			classes.Title, classes.Resume, classes.Text, classes.Course)
-		if err != nil {
-			return 0, err
-		}
-		return row.RowsAffected()
-	case "/courses" + id:
-		row, err := databaseConnection.Exec(`UPDATE courses SET name=$1, description=$2`,
-			courses.Name, courses.Description)
-		if err != nil {
-			return 0, err
-		}
-		return row.RowsAffected()
-	default:
-		http.Error(w, "path not found", http.StatusNotFound)
-		return 0, nil
+	stmt, err := db.Prepare("SELECT * FROM classes WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	var class class
+	row := stmt.QueryRow(classID)
+	err = row.Scan(&class.ID, &class.Title, &class.Resume, &class.Text)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "class not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 }
 
-func delete(w http.ResponseWriter, r *http.Request) {
-	_, err = deleteItem(w, r)
+func getCourseByID(c *gin.Context) {
+	courseID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
-		panic(err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course ID"})
+		return
+	}
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("SELECT * FROM courses WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	var course course
+	row := stmt.QueryRow(courseID)
+	err = row.Scan(&course.ID, &course.Name, &course.Description)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "course not found"})
+		return
+	} else if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
 }
 
-func deleteItem(w http.ResponseWriter, r *http.Request) (int64, error) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-
-	databaseConnection, err := openConnection()
+func createExercise(c *gin.Context) {
+	var exercise exercise
+	err := json.NewDecoder(c.Request.Body).Decode(&exercise)
 	if err != nil {
-		return 0, err
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid exercise data"})
+		return
 	}
-	defer databaseConnection.Close()
 
-	params := mux.Vars(r)
-	id := params["id"]
+	exercise.ID = int64(uuid.New().ID())
 
-	switch r.URL.Path {
-	case "/exercises" + id:
-		row, err := databaseConnection.Exec(`DELETE FROM exercises WHERE id=$1`, id)
-		if err != nil {
-			return 0, err
-		}
-		return row.RowsAffected()
-	case "/classes" + id:
-		row, err := databaseConnection.Exec(`DELETE FROM classes WHERE id=$1`, id)
-		if err != nil {
-			return 0, err
-		}
-		return row.RowsAffected()
-	case "/courses" + id:
-		row, err := databaseConnection.Exec(`DELETE FROM courses WHERE id=$1`, id)
-		if err != nil {
-			return 0, err
-		}
-		return row.RowsAffected()
-	default:
-		http.Error(w, "path not found", http.StatusNotFound)
-		return 0, nil
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("INSERT INTO exercises (question, answer, correct_answer, subject) VALUES ($1, $2, $3, $4)")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(exercise.Question, exercise.Answer, exercise.CorrectAnswer, exercise.Subject)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	}
+	c.JSON(http.StatusCreated, exercise)
+}
+
+func createClass(c *gin.Context) {
+	var class class
+	err := json.NewDecoder(c.Request.Body).Decode(&class)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid class data"})
+		return
+	}
+
+	class.ID = int64(uuid.New().ID())
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("INSERT INTO classes (title, resume, text) VALUES ($1, $2, $3)")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(class.Title, class.Resume, class.Text)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, class)
+}
+
+func createCourse(c *gin.Context) {
+	var course course
+	err := json.NewDecoder(c.Request.Body).Decode(&course)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course data"})
+		return
+	}
+
+	course.ID = int64(uuid.New().ID())
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("INSERT INTO courses (name, description) VALUES ($1, $2)")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(course.Name, course.Description)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, course)
+}
+
+func updateExercise(c *gin.Context) {
+	exerciseID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid exercise ID"})
+		return
+	}
+
+	var updatedExercise exercise
+	err = json.NewDecoder(c.Request.Body).Decode(&updatedExercise)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid exercise data"})
+		return
+	}
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("UPDATE exercises SET question = $1, answer = $2, correct_answer = $3, subject = $4 WHERE id = $5")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(updatedExercise.Question, updatedExercise.Answer, updatedExercise.CorrectAnswer, updatedExercise.Subject, exerciseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error updating exercise: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, updatedExercise)
+}
+
+func updateClass(c *gin.Context) {
+	classID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid class ID"})
+		return
+	}
+
+	var updatedClass class
+	err = json.NewDecoder(c.Request.Body).Decode(&updatedClass)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid class data"})
+		return
+	}
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("UPDATE classes SET title = $1, resume = $2, text = $3 WHERE id = $4")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(updatedClass.Title, updatedClass.Resume, updatedClass.Text, classID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error updating class: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, updatedClass)
+}
+
+func updateCourse(c *gin.Context) {
+	courseID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course ID"})
+		return
+	}
+
+	var updatedCourse course
+	err = json.NewDecoder(c.Request.Body).Decode(&updatedCourse)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course data"})
+		return
+	}
+
+	updatedCourse.ID = int64(courseID)
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("UPDATE courses SET name = $1, description = $2 WHERE id = $3")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(updatedCourse.Name, updatedCourse.Description, courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error updating course: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, updatedCourse)
+}
+
+func deleteExercise(c *gin.Context) {
+	exerciseID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid exercise id"})
+		return
+	}
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("DELETE FROM exercises WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(strconv.Itoa(exerciseID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error deleting exercise: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "exercise deleted"})
+}
+
+func deleteClass(c *gin.Context) {
+	classID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid class id"})
+		return
+	}
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("DELETE FROM classes WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(strconv.Itoa(classID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error deleting class: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "class deleted"})
+}
+
+func deleteCourse(c *gin.Context) {
+	courseID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid course id"})
+		return
+	}
+
+	db, err := databaseConnection()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	stmt, err := db.Prepare("DELETE FROM courses WHERE id = $1")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer stmt.Close()
+
+	_, err = db.Exec(strconv.Itoa(courseID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "error deleting course: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "course deleted"})
 }
