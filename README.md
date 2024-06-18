@@ -50,6 +50,18 @@ $ docker-compose exec postgres bash
 
 # Connect PostgreSQL database server running on local machine using psql command line too
 $ psql -h localhost -p 5432 -U postgres
+
+# Create a new Docker network
+$ docker network inspect <network name>
+
+# List Docker networks known to Docker running on your system
+$ docker network ls
+
+# Connect an existing Docker container to a specific network
+$ docker network connect <network name> <container name>
+
+# Run an interactive shell inside an already running Docker container
+$ docker exec -it <container name> /bin/sh
 ```
 
 ---
