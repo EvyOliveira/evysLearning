@@ -23,15 +23,16 @@ CREATE TABLE exercises (
   question VARCHAR(70),
   answer VARCHAR(150),
   correctAnswer VARCHAR(150),
+  subject VARCHAR(100),
   class_id BIGSERIAL,
   course_id BIGSERIAL,
 	FOREIGN KEY (class_id) REFERENCES Classes(id),
 	FOREIGN KEY (course_id) REFERENCES Courses(id)
 );
 
-INSERT INTO Courses(name, description) VALUES ('Analysis and systems development', 'Focus on developing systems design and development skills.');
-INSERT INTO Courses(name, description) VALUES ('Information systems', 'This course concerns the available information systems and their complexities.');
-INSERT INTO Classes(title, resume, text) VALUES ('Linear Programming', 'Algorithms and methods for the Linear Programming approach.', 'Elective subject');
-INSERT INTO Classes(title, resume, text) VALUES ('Software Engineering', 'Approaches, project management methodologies, systems diagramming.', 'Mandatory subject');
-INSERT INTO Exercises(question, answer, correctAnswer)VALUES ('What is the best programming language?', 'Python', 'It depends on the context, developers familiarity, software applicability and other factors.');
-INSERT INTO Exercises(question, answer, correctAnswer)VALUES ('What does SQL mean?', 'It is a language for manipulating data through a database that makes use of relational algebra.', 'Popular query language used in various types of applications.');
+INSERT INTO courses(name, description) VALUES ('Analysis and systems development', 'Focus on developing systems design and development skills.');
+INSERT INTO courses(name, description) VALUES ('Information systems', 'This course concerns the available information systems and their complexities.');
+INSERT INTO classes(title, resume, text) VALUES ('Linear Programming', 'Algorithms and methods for the Linear Programming approach.', 'Elective subject');
+INSERT INTO classes(title, resume, text) VALUES ('Software Engineering', 'Approaches, project management methodologies, systems diagramming.', 'Mandatory subject');
+INSERT INTO exercises(question, answer, correctAnswer, subject)VALUES ('What is the best programming language?', 'Python', 'It depends on the context, developers familiarity, software applicability and other factors.', 'Programming language');
+INSERT INTO exercises(question, answer, correctAnswer, subject)VALUES ('What does SQL mean?', 'It is a language for manipulating data through a database that makes use of relational algebra.', 'Popular query language used in various types of applications.', 'SQL');
