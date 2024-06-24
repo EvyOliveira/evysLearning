@@ -1,4 +1,4 @@
-CREATE DATEBASE EvysLearning;
+CREATE DATABASE EvysLearning;
 
 USE EvysLearning;
 
