@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -129,17 +128,19 @@ func (c *course) courseFieldValidator() error {
 }
 
 func databaseConnection() (*sql.DB, error) {
-	host := os.Getenv("POSTGRES_HOST")
-	port := os.Getenv("POSTGRES_PORT")
-	user := os.Getenv("POSTGRES_USER")
-	password := os.Getenv("POSTGRES_PASSWORD")
-	dbname := os.Getenv("POSTGRES_DB")
+	//host := os.Getenv("POSTGRES_HOST")
+	//port := os.Getenv("POSTGRES_PORT")
+	//user := os.Getenv("POSTGRES_USER")
+	//password := os.Getenv("POSTGRES_PASSWORD")
+	//dbname := os.Getenv("POSTGRES_DB")
 
-	connection := fmt.Sprint("postgres", "host=%s port=%s user=%s password=%s dbname=%s", host, port, user, password, dbname)
-	databaseConnection, err := sql.Open("postgres", connection)
+	dsn := "localhost:postgres@evysLearning?charset=utf8?sslmode=disable"
+	databaseConnection, err := sql.Open("postgres", dsn)
+	//fmt.Println(dsn)
 	if err != nil {
-		panic(err)
+		log.Fatal("error to estabilish connection to database\n", err)
 	}
+	err = databaseConnection.Ping()
 	return databaseConnection, err
 }
 
