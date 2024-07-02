@@ -19,7 +19,7 @@ type Class struct {
 	Title  string  `valid:"required"`
 	Resume string  `valid:"required"`
 	Text   string  `valid:"required"`
-	Course *Course `valid:"optional"`
+	Course *Course `valid:"required"`
 }
 
 func NewClass(title, resume, text string) *Class {

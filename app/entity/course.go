@@ -15,8 +15,8 @@ type CourseInterface interface {
 
 type Course struct {
 	ID          string `valid:"uuidv4"`
-	Name        string `valid:"optional"`
-	Description string `valid:"optional"`
+	Name        string `valid:"required"`
+	Description string `valid:"required"`
 }
 
 func NewCourse(name, description string) *Course {
